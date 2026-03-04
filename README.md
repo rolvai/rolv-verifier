@@ -1,3 +1,5 @@
+# ROLV Verification Kit
+
 **Test the New Compute Primitive on Any Hardware — Zero IP Exposure**
 
 **The ROLV Primitive**  
@@ -24,11 +26,13 @@ Full benchmarks & methodology: [rolv.ai](https://rolv.ai)
 pip install torch numpy
 python rolv-verifier.py
 
-Send the generated rolv_baseline.json to rolv@rolv.ai and we will return a professional comparison report showing ROLV results on your exact hardware.
-
-Customize the test
-
-bash
+Send the generated rolv_baseline.json to rolv@rolv.ai and we will return a professional comparison report showing ROLV results on your exact hardware.Customize the testbash
 
 python rolv-verifier.py --N 16384 --zeros 0.92 --batch 2048 --iters 500 --pattern power_law
+
+Supporting DocumentsHow to Validate Rolv.pdf (How%20to%20Validate%20Rolv.pdf)
+ROLV Full Benchmarks.pdf (ROLV_Full_Benchmarks.pdf)
+University of Miami Validation Letter.pdf (University_of_Miami_Validation_Letter.pdf)
+
+Rolv, LLC • Patents Pending
 
