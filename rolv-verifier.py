@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # ROLV Verification Kit — Public baseline harness (ZERO ROLV IP)
+# UPDATED: Now supports rectangular matrices (any rows × cols)
 # Run this on ANY hardware you own
 
 import torch
@@ -16,9 +17,11 @@ import os
 from dataclasses import dataclass
 from typing import Tuple, Dict, Any
 
+
 @dataclass
 class TestConfig:
-    N: int = 20000
+    rows: int = 20000
+    cols: int = 20000
     zeros_pct: float = 0.70
     batch_size: int = 5000
     iters: int = 1000
@@ -26,36 +29,39 @@ class TestConfig:
     seed: int = 42
     pattern: str = "random"
 
+
 def generate_matrix(cfg: TestConfig) -> Tuple[torch.Tensor, torch.Tensor]:
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
     random.seed(cfg.seed)
 
     density = 1.0 - cfg.zeros_pct
-    A = torch.rand(cfg.N, cfg.N, dtype=torch.float32)
+    A = torch.rand(cfg.rows, cfg.cols, dtype=torch.float32)
 
     if cfg.pattern == "random":
-        mask = torch.rand(cfg.N, cfg.N) < density
+        mask = torch.rand(cfg.rows, cfg.cols) < density
         A *= mask.float()
     elif cfg.pattern == "power_law":
-        vals = torch.rand(cfg.N * cfg.N)
+        vals = torch.rand(cfg.rows * cfg.cols)
         vals, _ = torch.sort(vals)
         mask = vals < density
         A = A.view(-1)
         A[mask] = 0.0
-        A = A.view(cfg.N, cfg.N)
+        A = A.view(cfg.rows, cfg.cols)
     elif cfg.pattern == "banded":
-        i, j = torch.meshgrid(torch.arange(cfg.N), torch.arange(cfg.N))
-        mask = torch.abs(i - j) <= int(cfg.N * (1 - density) / 2)
+        i, j = torch.meshgrid(torch.arange(cfg.rows), torch.arange(cfg.cols))
+        band_width = int(min(cfg.rows, cfg.cols) * (1 - density) / 2)
+        mask = torch.abs(i - j) <= band_width
         A *= mask.float()
     elif cfg.pattern == "block_diagonal":
-        block_size = int(cfg.N * (1 - density) ** 0.5)
-        blocks = [torch.rand(block_size, block_size) for _ in range(cfg.N // block_size + 1)]
+        block_size = int(min(cfg.rows, cfg.cols) * (1 - density) ** 0.5)
+        blocks = [torch.rand(block_size, block_size) for _ in range(min(cfg.rows, cfg.cols) // block_size + 1)]
         A = torch.block_diag(*blocks)
-        A = A[:cfg.N, :cfg.N]
+        A = A[:cfg.rows, :cfg.cols]
 
-    V = torch.randn(cfg.N, cfg.batch_size, dtype=torch.float32)
+    V = torch.randn(cfg.cols, cfg.batch_size, dtype=torch.float32)
     return A, V
+
 
 def normalize_for_hash(out: torch.Tensor) -> np.ndarray:
     arr = out.cpu().float().numpy()
@@ -66,12 +72,14 @@ def normalize_for_hash(out: torch.Tensor) -> np.ndarray:
         arr[:, j] = (col - m) / s
     return arr
 
+
 def compute_hashes(out: torch.Tensor) -> Dict[str, str]:
     norm = normalize_for_hash(out)
     flat = norm.flatten()
     sha256 = hashlib.sha256(flat[:4_000_000].tobytes()).hexdigest()
     qhash = round(float(np.mean(norm)), 6)
     return {"sha256_norm": sha256, "qhash": str(qhash)}
+
 
 def get_hardware_info() -> Dict[str, str]:
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU only"
@@ -84,12 +92,15 @@ def get_hardware_info() -> Dict[str, str]:
         "torch_version": torch.__version__
     }
 
+
 def run_verifier(cfg: TestConfig) -> Dict[str, Any]:
     A, V = generate_matrix(cfg)
 
+    # Warmup
     for _ in range(cfg.warmup):
         _ = torch.mm(A, V)
 
+    # Baseline timing
     start = time.perf_counter()
     for _ in range(cfg.iters):
         out = torch.mm(A, V)
@@ -100,7 +111,8 @@ def run_verifier(cfg: TestConfig) -> Dict[str, Any]:
 
     result = {
         "config": {
-            "N": cfg.N,
+            "rows": cfg.rows,
+            "cols": cfg.cols,
             "zeros_pct": cfg.zeros_pct,
             "pattern": cfg.pattern,
             "batch_size": cfg.batch_size,
@@ -117,20 +129,33 @@ def run_verifier(cfg: TestConfig) -> Dict[str, Any]:
     }
     return result
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ROLV Verification Kit")
-    parser.add_argument("--N", type=int, default=20000, help="Matrix size")
+    parser.add_argument("--N", type=int, help="Matrix size for square matrix (sets rows=cols=N)")
+    parser.add_argument("--rows", type=int, default=20000, help="Number of rows")
+    parser.add_argument("--cols", type=int, default=20000, help="Number of columns")
     parser.add_argument("--zeros", type=float, default=0.70, help="Sparsity 0-1")
     parser.add_argument("--batch", type=int, default=5000, help="Batch size")
     parser.add_argument("--iters", type=int, default=1000, help="Iterations")
     parser.add_argument("--pattern", type=str, default="random")
+
     args = parser.parse_args()
 
-    cfg = TestConfig(N=args.N, zeros_pct=args.zeros, batch_size=args.batch,
-                     iters=args.iters, pattern=args.pattern)
+    # Backward compatibility: --N still works exactly as before
+    if args.N is not None:
+        rows = cols = args.N
+    else:
+        rows = args.rows
+        cols = args.cols
+
+    cfg = TestConfig(rows=rows, cols=cols, zeros_pct=args.zeros,
+                     batch_size=args.batch, iters=args.iters, pattern=args.pattern)
+
     result = run_verifier(cfg)
 
     print(json.dumps(result, indent=2))
     with open("rolv_baseline.json", "w") as f:
         json.dump(result, f, indent=2)
+
     print("\n✅ Saved to rolv_baseline.json — please send this file to us!")
