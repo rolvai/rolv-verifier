@@ -30,9 +30,11 @@ Send the generated rolv_baseline.json to rolv@rolv.ai and we will return a profe
 
 Customize the testbash
 
-python
+```bash
 
-rolv-verifier.py --N 16384 --zeros 0.92 --batch 2048 --iters 500 --pattern power_law
+python rolv-verifier.py --N 16384 --zeros 0.92 --batch 2048 --iters 500 --pattern power_law
+
+
 
 Rolv, LLC • Patents Pending
 
